@@ -6,7 +6,7 @@ on:
       - main
 
 env:
-  # >>> ĐỔI 2 GIÁ TRỊ NÀY CHO PHÙ HỢP VPS CỦA BẠN <<<
+  # ĐỔI 2 GIÁ TRỊ NÀY NẾU CẦN
   TARGET_DIR: /srv/myapp
   SERVICE_NAME: myapp
 
@@ -27,9 +27,10 @@ jobs:
           port: 22
           script: |
             set -e
-            # Đảm bảo thư mục cha tồn tại rồi xóa code cũ
-            mkdir -p "$(dirname "${TARGET_DIR}")"
-            rm -rf "${TARGET_DIR}"
+            APP_DIR="${{ env.TARGET_DIR }}"
+            # đảm bảo thư mục cha tồn tại rồi xoá code cũ
+            mkdir -p "$(dirname "$APP_DIR")"
+            rm -rf "$APP_DIR"
 
       - name: Copy source code to VPS via SCP
         uses: appleboy/scp-action@v0.1.4
@@ -39,12 +40,10 @@ jobs:
           password: ${{ secrets.VPS_PASSWORD }}
           port: 22
           source: "."
-          target: "${{ env.TARGET_DIR }}"   # dùng env thay vì vars
+          target: "${{ env.TARGET_DIR }}"
           overwrite: true
           timeout: 1m
           command_timeout: 10m
-          rm: false
-          debug: false
 
       - name: SSH into VPS and deploy container
         uses: appleboy/ssh-action@v1.0.0
@@ -55,8 +54,13 @@ jobs:
           port: 22
           script: |
             set -e
-            APP_DIR="${TARGET_DIR}"
-            SERVICE="${SERVICE_NAME}"
+            APP_DIR="${{ env.TARGET_DIR }}"
+            SERVICE="${{ env.SERVICE_NAME }}"
+
+            if [ -z "$SERVICE" ]; then
+              echo "SERVICE_NAME is empty. Please set env.SERVICE_NAME in workflow."
+              exit 1
+            fi
 
             cd "$APP_DIR"
 
@@ -69,7 +73,7 @@ jobs:
             docker stop "$SERVICE" 2>/dev/null || true
             docker rm "$SERVICE" 2>/dev/null || true
 
-            # Build lại Docker image
+            # Build lại Docker image (tag theo SERVICE)
             docker build --no-cache -t "$SERVICE" .
 
             # Chạy container mới, map port 2609 -> 8080
