@@ -21,6 +21,9 @@ jobs:
           password: ${{ secrets.VPS_PASSWORD }}
           port: 22
           script: |
+            set -e
+            # Đảm bảo thư mục cha tồn tại rồi xóa code cũ
+            mkdir -p "$(dirname "${{ vars.TARGET_DIR }}")"
             rm -rf "${{ vars.TARGET_DIR }}"
 
       - name: Copy source code to VPS via SCP
@@ -31,10 +34,12 @@ jobs:
           password: ${{ secrets.VPS_PASSWORD }}
           port: 22
           source: "."
-          target: "${{ vars.TARGET_DIR }}"
+          target: "${{ vars.TARGET_DIR }}"   # PHẢI CÓ target
           overwrite: true
           timeout: 1m
           command_timeout: 10m
+          rm: false
+          debug: false
 
       - name: SSH into VPS and deploy container
         uses: appleboy/ssh-action@v1.0.0
@@ -50,17 +55,17 @@ jobs:
 
             cd "$APP_DIR"
 
-            # Ghi nội dung .env từ GitHub Secret
+            # Ghi file .env từ secret
             cat > .env <<EOF
             ${{ secrets.ENV_FILE }}
             EOF
 
-            # Dừng & xóa container cũ (nếu tồn tại)
+            # Dừng & xóa container cũ nếu có
             docker stop "$SERVICE" 2>/dev/null || true
             docker rm "$SERVICE" 2>/dev/null || true
 
-            # Build lại Docker image (tag theo SERVICE)
+            # Build lại Docker image
             docker build --no-cache -t "$SERVICE" .
 
-            # Chạy 1 container duy nhất, map port 2609 -> 8080
+            # Chạy container mới, map port 2609 -> 8080
             docker run -d --name "$SERVICE" -p 2609:8080 --env-file .env "$SERVICE"
