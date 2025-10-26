@@ -1,0 +1,37 @@
+package exe.exe201be.service.Order;
+
+import exe.exe201be.dto.request.ChangeStatusRequest;
+import exe.exe201be.dto.request.CreateOrderRequest;
+import exe.exe201be.dto.request.SearchRequest;
+import exe.exe201be.dto.response.MonthlyRevenueResponse;
+import exe.exe201be.dto.response.OrderDetailResponse;
+import exe.exe201be.dto.response.OrderResponse;
+import exe.exe201be.dto.response.SearchResponse;
+import exe.exe201be.pojo.Order;
+import exe.exe201be.pojo.OrderDetail;
+import org.bson.types.ObjectId;
+
+import java.util.List;
+import java.util.Optional;
+
+public interface OrderService {
+    List<OrderResponse> getAllOrderByUserId(ObjectId userId);
+
+    List<OrderDetailResponse> getOrderDetailById(ObjectId orderDetailId);
+
+    Order createOrder(ObjectId userId, ObjectId servicePackageId, CreateOrderRequest createOrderRequest);
+
+    void updateStatusOrder(ObjectId orderId, ChangeStatusRequest status);
+
+    Optional<Order> getOrderById(ObjectId orderId);
+
+    Order findByReferenceCode(String ref);
+
+    SearchResponse<OrderResponse> getHistoryOrder(ObjectId userId, SearchRequest searchRequest);
+
+    SearchResponse<OrderResponse> getAllOrders(SearchRequest searchRequest);
+
+    List<MonthlyRevenueResponse> getMonthlyRevenue(int year, String tz);
+
+
+}
