@@ -5,6 +5,11 @@ on:
     branches:
       - main
 
+env:
+  # >>> ĐỔI 2 GIÁ TRỊ NÀY CHO PHÙ HỢP VPS CỦA BẠN <<<
+  TARGET_DIR: /srv/myapp
+  SERVICE_NAME: myapp
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -23,8 +28,8 @@ jobs:
           script: |
             set -e
             # Đảm bảo thư mục cha tồn tại rồi xóa code cũ
-            mkdir -p "$(dirname "${{ vars.TARGET_DIR }}")"
-            rm -rf "${{ vars.TARGET_DIR }}"
+            mkdir -p "$(dirname "${TARGET_DIR}")"
+            rm -rf "${TARGET_DIR}"
 
       - name: Copy source code to VPS via SCP
         uses: appleboy/scp-action@v0.1.4
@@ -34,7 +39,7 @@ jobs:
           password: ${{ secrets.VPS_PASSWORD }}
           port: 22
           source: "."
-          target: "${{ vars.TARGET_DIR }}"   # PHẢI CÓ target
+          target: "${{ env.TARGET_DIR }}"   # dùng env thay vì vars
           overwrite: true
           timeout: 1m
           command_timeout: 10m
@@ -50,8 +55,8 @@ jobs:
           port: 22
           script: |
             set -e
-            APP_DIR="${{ vars.TARGET_DIR }}"
-            SERVICE="${{ vars.SERVICE_NAME }}"
+            APP_DIR="${TARGET_DIR}"
+            SERVICE="${SERVICE_NAME}"
 
             cd "$APP_DIR"
 
@@ -68,4 +73,4 @@ jobs:
             docker build --no-cache -t "$SERVICE" .
 
             # Chạy container mới, map port 2609 -> 8080
-            docker run -d --name "$SERVICE" -p 2609:8080 --env-file .env "$SERVICE"
+            docker run -d --name "$SERVICE" --restart unless-stopped -p 2609:8080 --env-file .env "$SERVICE"
