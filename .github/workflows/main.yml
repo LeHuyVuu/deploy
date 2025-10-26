@@ -2,11 +2,8 @@ name: CI/CD Deploy to VPS using Docker
 
 on:
   push:
-    branches: [ main ]   # đổi nếu bạn dùng branch khác
-
-concurrency:
-  group: deploy-to-vps
-  cancel-in-progress: true
+    branches:
+      - main
 
 jobs:
   deploy:
@@ -16,56 +13,17 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      # Preflight: đảm bảo có đủ biến/secret (không in secrets)
-      - name: Preflight - check inputs
-        run: |
-          echo "TARGET_DIR=${{ vars.TARGET_DIR }}"
-          echo "SERVICE_NAME=${{ vars.SERVICE_NAME }}"
-          test -n "${{ vars.TARGET_DIR }}" || (echo "❌ TARGET_DIR is empty" && exit 1)
-          test -n "${{ vars.SERVICE_NAME }}" || (echo "❌ SERVICE_NAME is empty" && exit 1)
-          test -n "${{ secrets.VPS_HOST }}" || (echo "❌ VPS_HOST is empty" && exit 1)
-          test -n "${{ secrets.VPS_USER }}" || (echo "❌ VPS_USER is empty" && exit 1)
-          test -n "${{ secrets.VPS_PASSWORD }}" || (echo "❌ VPS_PASSWORD is empty" && exit 1)
-          test -n "${{ secrets.ENV_FILE }}" || (echo "❌ ENV_FILE is empty" && exit 1)
-
-      # Kiểm tra SSH vào VPS (để fail sớm nếu sai password/port)
-      - name: Sanity SSH
+      - name: Clean old source code on VPS
         uses: appleboy/ssh-action@v1.0.0
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           password: ${{ secrets.VPS_PASSWORD }}
           port: 22
-          script_stop: true
-          command_timeout: 3m
-          debug: true
           script: |
-            whoami && uname -a
-            echo "SSH OK"
+            rm -rf "${{ vars.TARGET_DIR }}"
 
-      # Tạo thư mục và dọn sạch NỘI DUNG (không bao giờ rm /*)
-      - name: Clean target dir on VPS (safe)
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          password: ${{ secrets.VPS_PASSWORD }}
-          port: 22
-          script_stop: true
-          command_timeout: 5m
-          script: |
-            set -euo pipefail
-            APP_DIR="${{ vars.TARGET_DIR }}"
-            if [ -z "$APP_DIR" ] || [ "$APP_DIR" = "/" ]; then
-              echo "❌ Invalid APP_DIR='$APP_DIR'"; exit 1
-            fi
-            sudo mkdir -p "$APP_DIR"
-            # Xoá nội dung cấp 1 trong APP_DIR một cách an toàn
-            sudo find "$APP_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-            sudo chown -R $USER:$USER "$APP_DIR"
-
-      # Copy source code lên VPS
-      - name: Copy source via SCP
+      - name: Copy source code to VPS via SCP
         uses: appleboy/scp-action@v0.1.4
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -75,51 +33,34 @@ jobs:
           source: "."
           target: "${{ vars.TARGET_DIR }}"
           overwrite: true
-          timeout: 2m
+          timeout: 1m
           command_timeout: 10m
 
-      # Build & Run container
-      - name: Deploy on VPS
+      - name: SSH into VPS and deploy container
         uses: appleboy/ssh-action@v1.0.0
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           password: ${{ secrets.VPS_PASSWORD }}
           port: 22
-          script_stop: true
-          command_timeout: 25m
           script: |
-            set -euo pipefail
+            set -e
             APP_DIR="${{ vars.TARGET_DIR }}"
             SERVICE="${{ vars.SERVICE_NAME }}"
 
             cd "$APP_DIR"
 
-            # Ghi file .env từ secret (quotes 'EOF' để giữ nguyên nội dung)
-            cat > .env <<'EOF'
+            # Ghi nội dung .env từ GitHub Secret
+            cat > .env <<EOF
             ${{ secrets.ENV_FILE }}
             EOF
-            chmod 600 .env
 
-            # Cài Docker nếu chưa có
-            if ! command -v docker >/dev/null 2>&1; then
-              curl -fsSL https://get.docker.com | sh
-              sudo usermod -aG docker $USER || true
-            fi
+            # Dừng & xóa container cũ (nếu tồn tại)
+            docker stop "$SERVICE" 2>/dev/null || true
+            docker rm "$SERVICE" 2>/dev/null || true
 
-            # Dừng & xoá container cũ
-            docker rm -f "$SERVICE" 2>/dev/null || true
+            # Build lại Docker image (tag theo SERVICE)
+            docker build --no-cache -t "$SERVICE" .
 
-            # Build image mới (tag theo SERVICE)
-            docker build --pull --no-cache -t "$SERVICE" .
-
-            # Chạy container: map 1801 -> 8080
-            docker run -d --name "$SERVICE" \
-              -p 1801:8080 \
-              --env-file .env \
-              "$SERVICE"
-
-            # In trạng thái và gợi ý swagger
-            docker ps --filter "name=$SERVICE"
-            echo "Swagger (springdoc): http://$(curl -s ifconfig.me):1801/swagger-ui/index.html"
-            echo "Swagger (springfox): http://$(curl -s ifconfig.me):1801/swagger-ui.html"
+            # Chạy 1 container duy nhất, map port 2609 -> 8080
+            docker run -d --name "$SERVICE" -p 2609:8080 --env-file .env "$SERVICE"
